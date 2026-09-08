@@ -1,3 +1,4 @@
+import { UploadFactory } from '@gitroom/nestjs-libraries/upload/upload.factory';
 import {
   AnalyticsData,
   AuthTokenDetails,
@@ -559,7 +560,9 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
     const [firstPost, ...comments] = postDetails;
 
     const { settings }: { settings: YoutubeSettingsDto } = firstPost;
-    const path = firstPost?.media?.[0]?.path!;
+    const publicPath = firstPost?.media?.[0]?.path!;
+    const path =
+      UploadFactory.createStorage().resolveLocalFilePath?.(publicPath) ?? publicPath;
     const videoSize = await this.youtubeMediaSize(path);
 
     // Start a resumable upload session: nothing exists on the channel until
@@ -794,18 +797,23 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
       const { client, youtube } = clientAndYoutube();
       client.setCredentials({ access_token: accessToken });
       const youtubeClient = youtube(client);
+      const localThumbnail = UploadFactory.createStorage().resolveLocalFilePath?.(
+        pendingData.thumbnail
+      );
 
       await this.runInConcurrent(async () =>
         youtubeClient.thumbnails.set({
           videoId,
           media: {
-            body: (
-              await this.getSsrfSafeAxios()({
-                url: pendingData.thumbnail,
-                method: 'GET',
-                responseType: 'stream',
-              })
-            ).data,
+            body: localThumbnail
+              ? createReadStream(localThumbnail)
+              : (
+                  await this.getSsrfSafeAxios()({
+                    url: pendingData.thumbnail,
+                    method: 'GET',
+                    responseType: 'stream',
+                  })
+                ).data,
           },
         })
       );

@@ -197,8 +197,7 @@ export class PublicIntegrationsController {
     Sentry.metrics.count('public_api-request', 1);
     const body = await this._postsService.mapTypeToPost(
       rawBody,
-      org.id,
-      rawBody?.type === 'draft' || true
+      org.id
     );
     body.type = rawBody.type;
 
@@ -224,7 +223,9 @@ export class PublicIntegrationsController {
     // readable 400 (see PostValidationExceptionFilter).
     const validation = await this._postsService.validatePosts(
       org.id,
-      body.posts
+      body.posts,
+      body.type,
+      body.inter
     );
 
     const fail = (item: (typeof validation)[number], error: string) => {

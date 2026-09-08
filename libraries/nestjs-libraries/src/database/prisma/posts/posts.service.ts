@@ -54,6 +54,11 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { weightedLength } from '@gitroom/helpers/utils/count.length';
+import {
+  assertPublishingPolicy,
+  getPublishingPolicy,
+  publishingPolicyError,
+} from './publishing.policy';
 
 type PostWithConditionals = Post & {
   integration?: Integration;
@@ -62,6 +67,7 @@ type PostWithConditionals = Post & {
 
 @Injectable()
 export class PostsService {
+  getPublishingPolicy = getPublishingPolicy;
   private storage = UploadFactory.createStorage();
   constructor(
     private _postRepository: PostsRepository,
@@ -765,11 +771,14 @@ export class PostsService {
     posts: Array<{
       integration: { id: string };
       value: Array<{
+        id?: string;
         content?: string;
         image?: Array<{ path: string; thumbnail?: string }>;
       }>;
       settings?: any;
-    }>
+    }>,
+    type: CreatePostDto['type'] = 'schedule',
+    inter?: number
   ) {
     return Promise.all(
       (posts || []).map(async (post) => {
@@ -853,6 +862,12 @@ export class PostsService {
           emptyContent,
           tooLong,
           maximumCharacters,
+          publishingError: await this.getPostPublishingError(
+            orgId,
+            post,
+            type,
+            inter
+          ),
         };
       })
     );
@@ -903,6 +918,19 @@ export class PostsService {
     creationMethod: CreationMethod,
     keepGroup = false
   ): Promise<any[]> {
+    // Validate the entire batch before any writes or workflow changes.
+    for (const post of body.posts) {
+      const error = await this.getPostPublishingError(
+        orgId,
+        post,
+        body.type,
+        body.inter
+      );
+      if (error) {
+        throw new BadRequestException(error);
+      }
+    }
+
     const postList = [];
     for (const post of body.posts) {
       if (
@@ -1135,6 +1163,9 @@ export class PostsService {
     }
 
     const state: State = status === 'draft' ? 'DRAFT' : 'QUEUE';
+    if (state === 'QUEUE') {
+      await this.assertStoredPublishingPolicy(orgId, id);
+    }
     await this._postRepository.changeState(id, state);
 
     try {
@@ -1162,6 +1193,12 @@ export class PostsService {
       this.guardAgainstRepublish(getPostById, 'changeDate');
     }
 
+    // Moving a draft's date keeps it a draft. Only an explicit reschedule
+    // crosses a publishing boundary; existing job execution stays unchanged.
+    if (action === 'schedule' && getPostById.state !== 'DRAFT') {
+      await this.assertStoredPublishingPolicy(orgId, id);
+    }
+
     // schedule: Set status to QUEUE and change date (reschedule the post)
     // update: Just change the date without changing the status
     const newDate = await this._postRepository.changeDate(
@@ -1186,6 +1223,32 @@ export class PostsService {
     }
 
     return newDate;
+  }
+
+  private async getPostPublishingError(
+    orgId: string,
+    post: { value: Array<{ id?: string; image?: Array<{ path: string }> }> },
+    type: CreatePostDto['type'],
+    inter?: number
+  ) {
+    // Only updates need persisted state. The root controls the entire thread;
+    // promoted draft children can still have state DRAFT.
+    const rootId = post.value?.[0]?.id;
+    const existing =
+      getPublishingPolicy().videoOnly && type === 'update' && rootId
+        ? await this._postRepository.getPostById(rootId, orgId)
+        : undefined;
+    return publishingPolicyError(post.value, { type, existing, inter });
+  }
+
+  private async assertStoredPublishingPolicy(orgId: string, id: string) {
+    if (!getPublishingPolicy().videoOnly) {
+      return;
+    }
+    const posts = await this.getPostsRecursively(id, false, orgId);
+    assertPublishingPolicy(
+      posts.map((post) => ({ image: JSON.parse(post.image || '[]') }))
+    );
   }
 
   async generatePostsDraft(orgId: string, body: CreateGeneratedPostsDto) {

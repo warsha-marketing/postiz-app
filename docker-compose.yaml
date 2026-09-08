@@ -15,6 +15,7 @@ services:
       TEMPORAL_ADDRESS: 'temporal:7233'
       IS_GENERAL: 'true'
       DISABLE_REGISTRATION: 'false'
+      VIDEO_ONLY_PUBLISHING: '${VIDEO_ONLY_PUBLISHING:-false}'
 
       # === Storage Settings
       STORAGE_PROVIDER: 'local'
