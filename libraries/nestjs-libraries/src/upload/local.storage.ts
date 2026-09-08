@@ -1,5 +1,6 @@
 import { IUploadProvider } from './upload.interface';
-import { mkdirSync, unlink, writeFileSync } from 'fs';
+import { mkdirSync, realpathSync, statSync, unlink, writeFileSync } from 'fs';
+import { resolve, sep } from 'node:path';
 import { isSafePublicHttpsUrl } from '@gitroom/nestjs-libraries/dtos/webhooks/webhook.url.validator';
 import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { parseDataUrl } from '@gitroom/nestjs-libraries/upload/data.url';
@@ -22,6 +23,34 @@ const LOCAL_STORAGE_ALLOWED_MIME = new Set<string>([
 ]);
 export class LocalStorage implements IUploadProvider {
   constructor(private uploadDirectory: string) {}
+
+  // Only resolve files belonging to this installation's public uploads URL.
+  // Real paths keep encoded traversal and symlinks inside the upload root.
+  resolveLocalFilePath(publicUrl: string): string | undefined {
+    try {
+      const base = new URL('/uploads/', process.env.FRONTEND_URL!);
+      const url = new URL(publicUrl);
+      if (
+        url.origin !== base.origin ||
+        url.username || url.password ||
+        !url.pathname.startsWith(base.pathname)
+      ) {
+        return;
+      }
+      const root = realpathSync(this.uploadDirectory);
+      const relative = decodeURIComponent(url.pathname.slice(base.pathname.length));
+      const candidate = resolve(root, relative);
+      if (!candidate.startsWith(root + sep)) {
+        return;
+      }
+      const file = realpathSync(candidate);
+      return file.startsWith(root + sep) && statSync(file).isFile()
+        ? file
+        : undefined;
+    } catch {
+      return;
+    }
+  }
 
   async uploadSimple(path: string) {
     const dataUrl = path.startsWith('data:') ? parseDataUrl(path) : null;
