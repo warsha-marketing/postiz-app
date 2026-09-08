@@ -62,7 +62,7 @@ The focused Jest config uses existing dependencies, without the stale root Jest 
 7. Verify the image/text jobs recorded before enabling still execute, including a repeat if configured. Explicitly rescheduling them while enabled fails without canceling their existing jobs.
 8. Disable the flag, recreate the app and refresh. Confirm the notice disappears and image/text scheduling and draft promotion work again within provider rules.
 
-## Verification results — 2026-09-08
+## Pre-rollout verification results — 2026-09-08
 
 Baseline: `36d5fc7b`. Feature branch: `feature/video-only-publishing`.
 
@@ -93,3 +93,23 @@ Not verified: a full Docker/Next production build, browser end-to-end interactio
 | `tests/publishing/publishing.spec.ts`, `tests/publishing/composer.spec.tsx` | Regression coverage. |
 | `tests/publishing/jest.config.cjs`, `tests/publishing/setup.cjs` | Focused existing-dependency test harness. |
 | `docs/video-only-publishing.md` | Configuration, trace, QA, results and limitations. |
+
+
+## Completed local rollout — 2026-09-08
+
+The `feature/video-only-publishing` branch is pushed to the Warsha fork. The local Postiz application now runs `postiz-fork:video-only` with `VIDEO_ONLY_PUBLISHING=true`. The existing `local-runtime/postiz/compose.sh` wrapper was updated to include the final fork overlay; ordinary wrapper restarts retain the fork. Provider filtering, credentials, ports, and persistent volumes were preserved. Agent Media was not changed.
+
+- Credential-free full source build passed for frontend, backend, and orchestrator. `.dockerignore` now excludes local environment files; the first unused build containing `.env` was removed together with its identified build-cache records.
+- The old pinned image had an older upstream schema. The local database was backed up to `../local-runtime/postiz/backups/before-video-only-52807abd.dump`. Reviewed additive schema updates applied successfully with `prisma db push --skip-generate` **without** `--accept-data-loss`.
+- Real publishing exposed an upstream local-storage issue: YouTube attempted SSRF-protected HTTP requests to its own localhost upload URL. The storage provider now resolves only this installation's upload URLs to existing regular files inside the real upload root, rejecting other origins, traversal, and escaping symlinks. YouTube uses that capability for video and cover streams. SSRF protection remains enabled.
+- Because disk space was limited, the media fix was compiled on the credential-free full-build image (`postiz-fork:base-3f7f8756`), using the documented local `Dockerfile.local-media-fix`. Both backend and orchestrator builds passed. `Dockerfile.dev` remains the full-source build path.
+- **62 tests passed across 3 suites**, running the current committed test sources in a network-disabled disposable container. This includes resolver safety and YouTube upload-session initialization. Optional unbuilt `canvas` was moved aside only inside the disposable test container.
+- Authenticated website and public APIs both rejected text-only and image-only scheduling with HTTP 400. The composer preflight returned the video-only policy message. Valid MP4 preflight passed; a video draft saved and reopened in the browser with its caption and private YouTube settings intact.
+- An incomplete caption draft with empty provider settings saved via the public API. Promotion to scheduled was rejected. That temporary draft was removed through the app API.
+- The five-second test video was scheduled through the actual composer. Its first attempt failed before upload due to the localhost media issue. After the fix, the same post was explicitly rescheduled and reached `PUBLISHED`.
+- YouTube's own API independently returned HTTP 200, `privacyStatus: private`, and `uploadStatus: processed` for video `2My7q7nPcEY` (`Warsha private publishing test`). It remains private on the connected Warsha channel. No duplicate test video was created.
+- Final container health is healthy and the effective policy endpoint returns `{"videoOnly":true}`.
+
+Not established by this rollout: Instagram/TikTok publishing, custom-thumbnail acceptance by YouTube (the test had no cover), or execution of pre-existing image/text jobs (none were used for live testing). Flag-off and existing-worker compatibility are covered by automated tests, not a live flag-toggle experiment. The policy is video-only; it does not impose Shorts duration/aspect-ratio limits. The new composer notice currently falls back to English in the Arabic interface.
+
+The failed attempt's historical error string remains stored even though the final post state is `PUBLISHED`; use the final state and release ID to assess its outcome. Do not resubmit the successfully published post.
