@@ -21,3 +21,7 @@ dist
 .git
 .github
 reports
+# Runtime credentials must never be copied into images.
+**/.env
+**/.env.*
+!**/.env.example
