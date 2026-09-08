@@ -43,6 +43,15 @@ import { useHasScroll } from '@gitroom/frontend/components/ui/is.scroll.hook';
 import { useShortlinkPreference } from '@gitroom/frontend/components/settings/shortlink-preference.component';
 import dayjs from 'dayjs';
 import { Button } from '@gitroom/react/form/button';
+import useSWR from 'swr';
+
+const usePublishingPolicy = () => {
+  const fetch = useFetch();
+  const load = useCallback(async () => {
+    return (await fetch('/posts/publishing-policy')).json();
+  }, [fetch]);
+  return useSWR<{ videoOnly: boolean }>('publishing-policy', load);
+};
 
 export const ManageModal: FC<AddEditModalProps> = (props) => {
   const t = useT();
@@ -54,6 +63,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
   const modal = useModals();
   const [showSettings, setShowSettings] = useState(false);
   const { data: shortlinkPreferenceData } = useShortlinkPreference();
+  const { data: publishingPolicy } = usePublishingPolicy();
 
   const { addEditSets, mutate, customClose, dummy } = props;
 
@@ -302,7 +312,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         const checkAllValid = await (
           await fetch('/posts/valid', {
             method: 'POST',
-            body: JSON.stringify({ type, posts }),
+            body: JSON.stringify({ type, posts, inter: repeater }),
           })
         ).json();
 
@@ -329,6 +339,14 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
 
         if (type !== 'draft') {
           for (const item of checkAllValid) {
+            if (item.publishingError) {
+              toaster.show(item.publishingError, 'warning');
+              focus(item.id, 'preview');
+              setLoading(false);
+              setShowSettings(false);
+              return;
+            }
+
             if (item.valid === false) {
               toaster.show(
                 `${capitalize(item.identifier.split('-')[0])} (${item.name}): ${
@@ -499,6 +517,17 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                       )}
                     </div>
                   </div>
+                  {publishingPolicy?.videoOnly && (
+                    <div
+                      role="note"
+                      className="rounded-[12px] bg-newSettings p-[12px] text-[14px] text-textColor"
+                    >
+                      {t(
+                        'video_only_publishing_notice',
+                        'Video-only publishing is enabled. Attach a video to each post before scheduling or publishing. Add captions in the editor and optional covers using the video cover or channel settings. Standalone images and text-only posts can be saved as drafts.'
+                      )}
+                    </div>
+                  )}
                   <div className="flex flex-1 gap-[6px] flex-col">
                     <div>{!existingData.integration && <SelectCurrent />}</div>
                     <div className="flex-1 flex">
