@@ -163,6 +163,11 @@ export class PostsController {
     return this._postsService.getPostsByGroup(org.id, group);
   }
 
+  @Get('/publishing-policy')
+  getPublishingPolicy() {
+    return this._postsService.getPublishingPolicy();
+  }
+
   @Get('/:id')
   getPost(@GetOrgFromRequest() org: Organization, @Param('id') id: string) {
     return this._postsService.getPost(org.id, id);
@@ -173,7 +178,12 @@ export class PostsController {
     @GetOrgFromRequest() org: Organization,
     @Body() rawBody: any
   ) {
-    return this._postsService.validatePosts(org.id, rawBody?.posts || []);
+    return this._postsService.validatePosts(
+      org.id,
+      rawBody?.posts || [],
+      rawBody?.type,
+      rawBody?.inter
+    );
   }
 
   @Post('/')
@@ -185,7 +195,9 @@ export class PostsController {
     // Server-side validation — never trust the client to have validated.
     const validation = await this._postsService.validatePosts(
       org.id,
-      rawBody?.posts || []
+      rawBody?.posts || [],
+      rawBody?.type,
+      rawBody?.inter
     );
 
     const fail = (item: (typeof validation)[number], error: string) => {
