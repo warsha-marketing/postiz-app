@@ -1,0 +1,14 @@
+# Optional final overlay for running a locally built fork. Apply AFTER local
+# overrides so their environment (including HIDDEN_PROVIDERS) is inherited.
+services:
+  postiz:
+    image: postiz-fork:video-only
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # The local pinned 2.23.0 image mounts an older compiled IntegrationManager.
+    # This source already supports HIDDEN_PROVIDERS. Keep persistent storage,
+    # but don't overwrite the newly built backend with that old compiled file.
+    volumes: !override
+      - postiz-config:/config/
+      - postiz-uploads:/uploads/
